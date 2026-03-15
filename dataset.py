@@ -21,6 +21,7 @@ from torchvision import transforms
 import torch
 from timm.data import create_transform
 
+
 def default_loader(path):
     return Image.open(path).convert('RGB')
 
@@ -63,12 +64,12 @@ class ImageFilelist(data.Dataset):
 
 def get_data(name, evaluate=True, batch_size=64,few_shot=False,shot=1,seed=1,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
     if few_shot:
-        root_train = './data/few_shot/' + name + '/images/train/'
-        root_val = './data/few_shot/' + name + '/images/test/'
-        trainval_flist='./data/few_shot/' +name+'/train_meta.list.num_shot_%d.seed_%d'%(shot,seed)
-        train_flist='./data/few_shot/' +name+'/train_meta.list.num_shot_%d.seed_%d'%(shot,seed)
-        val_flist='./data/few_shot/' +name+'test_meta.list'
-        test_flist='./data/few_shot/' +name+'test_meta.list'
+        root_train = '/root/autodl-tmp/data/few_shot/' + name + '/images/train/'
+        root_val = '/root/autodl-tmp/data/few_shot/' + name + '/images/test/'
+        trainval_flist='/root/autodl-tmp/data/few_shot/' +name+'/train_meta.list.num_shot_%d.seed_%d'%(shot,seed)
+        train_flist='/root/autodl-tmp/data/few_shot/' +name+'/train_meta.list.num_shot_%d.seed_%d'%(shot,seed)
+        val_flist='/root/autodl-tmp/data/few_shot/' +name+'test_meta.list'
+        test_flist='/root/autodl-tmp/data/few_shot/' +name+'test_meta.list'
         train_transform = create_transform(
             input_size=224,
             is_training=True,
@@ -80,7 +81,7 @@ def get_data(name, evaluate=True, batch_size=64,few_shot=False,shot=1,seed=1,mea
             re_count=1,
         )
     else:
-        root='./data/' + name
+        root='/root/autodl-tmp/data/' + name
         root_train = root
         root_val = root
         trainval_flist=root + "/train800val200.txt"

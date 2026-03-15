@@ -1,6 +1,6 @@
 name: "StanfordDogs"
 class_num: 120
-path: "./data/Stanford_Dogs"
+path: "/root/autodl-tmp/data/Stanford_Dogs"
 lr: 0.0002
 num: 10
 seed: 800

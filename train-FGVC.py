@@ -13,23 +13,22 @@ def train(config, model, dl, opt, scheduler, epoch, criterion=nn.CrossEntropyLos
     for ep in range(epoch):
         model.train()
         model = model.cuda()
-        total_loss = 0
+        total_loss = 0.0
         total_batch = 0
         for i, batch in enumerate(dl):
             x, y = batch['image'].cuda(), batch['label'].cuda()
 
-            out = model(x)  # 前向传播
-            loss = criterion(out, y)  # 计算损失
+            out = model(x)
+            loss = criterion(out, y)
 
-            total_loss += loss
+            total_loss += loss.item()
             total_batch += 1
-            # 反向传播并优化
+
             opt.zero_grad()
             loss.backward()
             opt.step()
 
-        print('Epoch:' + str(ep) + ' ' + 'avg_loss:' + str(float(total_loss) / int(total_batch)))
-        # print('cur_lr:'+str(opt.param_groups[0]['lr']))  # 获取当前学习率
+        print('Epoch:' + str(ep) + ' ' + 'avg_loss:' + str(total_loss / total_batch))
 
         if scheduler is not None:
             scheduler.step(ep)
@@ -47,16 +46,15 @@ def train(config, model, dl, opt, scheduler, epoch, criterion=nn.CrossEntropyLos
 def test(model, dl):
     model.eval()
     acc = Accuracy()
-    # pbar = tqdm(dl)
     model = model.cuda()
     torch.cuda.empty_cache()
-    for batch in dl:  # pbar:
+    for batch in dl:
         x, y = batch['image'].cuda(), batch['label'].cuda()
         out = model(x).data
-        acc.update(out.argmax(dim=1).view(-1), y, 0)
+        acc.update(out.argmax(dim=1).view(-1), y)
 
     torch.cuda.empty_cache()
-    return acc.result()[0]
+    return acc.result()
 
 
 if __name__ == '__main__':
@@ -82,7 +80,7 @@ if __name__ == '__main__':
 
     model = CVPT(drop_path_rate=0.1, Prompt_num=args.num, PromptDrop=args.prompt_drop,
                 init=args.init, insert=args.insert)
-    model.load_pretrained('./ViT-B_16.npz')
+    model.load_pretrained('/root/autodl-tmp/ViT-B_16.npz')
 
     cfg = get_cfg()
     cfg.DATA.NAME = config['name']

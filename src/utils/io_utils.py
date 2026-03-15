@@ -52,8 +52,8 @@ def write_json(data: Union[list, dict], outfile: str) -> None:
 
 def read_json(filename: str) -> Union[list, dict]:
     """read json files"""
-    with open(filename, "rb") as fin:
-        data = json.load(fin, encoding="utf-8")
+    with open(filename, "r", encoding="utf-8") as fin:
+        data = json.load(fin)
     return data
 
 

@@ -30,7 +30,7 @@ def set_seed(seed=0):
 
 
 def get_config(dataset):
-    config_name = './configs/%s.yaml' % (dataset)
+    config_name = '/root/autodl-tmp/configs/%s.yaml' % (dataset)
     with open(config_name, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     return config
