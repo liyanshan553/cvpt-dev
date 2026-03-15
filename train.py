@@ -69,6 +69,8 @@ if __name__ == '__main__':
     parser.add_argument('--num', type=int, default=10)
     parser.add_argument('--init', type=int, default=1)
     parser.add_argument('--insert', type=int, default=3)
+    parser.add_argument('--use_gate', type=int, default=1)
+    parser.add_argument('--use_channel_attn', type=int, default=1)
     parser.add_argument('--test', type=bool, default=False)
 
     args = parser.parse_args()
@@ -83,7 +85,8 @@ if __name__ == '__main__':
     set_seed(args.seed)
 
     model = CVPT(drop_path_rate=0.1, Prompt_num=args.num, PromptDrop=args.prompt_drop,
-                init=args.init, insert=args.insert)
+                init=args.init, insert=args.insert,
+                use_gate=bool(args.use_gate), use_channel_attn=bool(args.use_channel_attn))
     model.load_pretrained('/ssh/VPT/ViT-B_16.npz')
 
     model.cuda()
@@ -96,7 +99,7 @@ if __name__ == '__main__':
 
 
     for n, p in model.named_parameters():
-        if 'head' in n or 'Prompt_Tokens' in n:
+        if 'head' in n or 'Prompt_Tokens' in n or 'gate' in n or 'channel_attn' in n:
             trainable.append(p)
             print(n)
         else:

@@ -212,42 +212,101 @@ class Attention(nn.Module):
         return x
 
 
+class PromptConditionedGate(nn.Module):
+    """Prompt-Conditioned Adaptive Fusion Gate (PCAF).
+
+    Dynamically computes a per-instance gating scalar based on both the
+    visual features and the prompt tokens, so the model can adaptively
+    control how much cross-modal information to incorporate.
+    """
+
+    def __init__(self, dim, reduction=4):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(dim * 2, dim // reduction),
+            nn.GELU(),
+            nn.Linear(dim // reduction, 1),
+        )
+        nn.init.zeros_(self.fc[-1].weight)
+        nn.init.zeros_(self.fc[-1].bias)
+
+    def forward(self, x, prompt):
+        # x: (B, N, C),  prompt: (B, P, C)
+        x_pool = x.mean(dim=1)        # (B, C)
+        p_pool = prompt.mean(dim=1)    # (B, C)
+        gate = torch.sigmoid(self.fc(torch.cat([x_pool, p_pool], dim=-1)))  # (B, 1)
+        return gate.unsqueeze(1)       # (B, 1, 1)
+
+
+class ChannelAttention(nn.Module):
+    """Efficient Channel Attention (ECA-style).
+
+    Applies lightweight 1-D convolution over the channel dimension
+    to recalibrate feature channels with negligible parameter overhead.
+    """
+
+    def __init__(self, dim, k_size=3):
+        super().__init__()
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=k_size // 2, bias=False)
+
+    def forward(self, x):
+        # x: (B, N, C)
+        w = x.mean(dim=1)                            # (B, C)
+        w = self.conv(w.unsqueeze(1))                 # (B, 1, C)
+        return x * torch.sigmoid(w)
+
+
 class CvptBlock(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, Insert=1):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, Insert=1,
+                 use_gate=True, use_channel_attn=True):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
-        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path_cross = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         self.CrossAttn = CrossAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
         self.insert = Insert
 
+        # Prompt-Conditioned Adaptive Fusion Gate
+        self.gate = PromptConditionedGate(dim) if use_gate else None
+        # Channel Attention after MLP
+        self.channel_attn = ChannelAttention(dim) if use_channel_attn else None
 
+
+    def _cross_attn_with_gate(self, x, Prompt_token):
+        ca = self.CrossAttn(x, Prompt_token)
+        if self.gate is not None:
+            ca = self.gate(x, Prompt_token) * ca
+        return self.drop_path_cross(ca)
 
     def forward(self, x, Prompt_token):
         if self.insert == 1:
-            x = x + self.CrossAttn(x, Prompt_token)
+            x = x + self._cross_attn_with_gate(x, Prompt_token)
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
         elif self.insert == 2:
-            x = x + self.drop_path(self.attn(self.norm1(x)) + self.CrossAttn(x, Prompt_token))
+            x = x + self.drop_path(self.attn(self.norm1(x))) + self._cross_attn_with_gate(x, Prompt_token)
             x = x + self.drop_path(self.mlp(self.norm2(x)))
         elif self.insert == 3:
             x = x + self.drop_path(self.attn(self.norm1(x)))
-            x = x + self.CrossAttn(x, Prompt_token)
+            x = x + self._cross_attn_with_gate(x, Prompt_token)
             x = x + self.drop_path(self.mlp(self.norm2(x)))
         elif self.insert == 4:
             x = x + self.drop_path(self.attn(self.norm1(x)))
-            x = x + self.drop_path(self.mlp(self.norm2(x) + self.CrossAttn(x, Prompt_token)))
+            x = x + self.drop_path(self.mlp(self.norm2(x) + self._cross_attn_with_gate(x, Prompt_token)))
         elif self.insert == 5:
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
-            x = x + self.CrossAttn(x, Prompt_token)
+            x = x + self._cross_attn_with_gate(x, Prompt_token)
+
+        # Channel Attention Enhancement
+        if self.channel_attn is not None:
+            x = self.channel_attn(x)
 
         return x
 
@@ -289,7 +348,7 @@ class CVPT(nn.Module):
                  num_heads=12, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
                  act_layer=None, weight_init='', vpt_type='Deep', Prompt_num=14, PromptDrop=0.,
-                 init=1, insert=1):
+                 init=1, insert=1, use_gate=True, use_channel_attn=True):
 
         super().__init__()
         self.num_classes = num_classes
@@ -324,7 +383,7 @@ class CVPT(nn.Module):
             CvptBlock(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
                 attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,
-                Insert=self.Insert)
+                Insert=self.Insert, use_gate=use_gate, use_channel_attn=use_channel_attn)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
 
